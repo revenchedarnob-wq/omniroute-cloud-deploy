@@ -1,5 +1,12 @@
-# OmniRoute cloud deployment
+# 9Router cloud deployment
 
-Minimal deployment wrapper for OmniRoute 3.8.48. Runtime configuration and credentials are supplied by the hosting platform as environment variables. The database is restored from, and backed up to, encrypted Supabase Storage.
+Render's free 512 MB instance could not keep OmniRoute alive. This wrapper runs
+the lighter 9Router 0.5.40 image and performs a one-time migration from the
+encrypted OmniRoute backup already stored in Supabase.
 
-No credentials are stored in this repository.
+The migration preserves the existing client API key, routing combo, aliases,
+and supported provider credentials. It maps `agy` to `antigravity` and `zai`
+to `glm`. OmniRoute-only web-session providers are skipped.
+
+Runtime SQLite snapshots are encrypted with AES-256-GCM before upload to the
+private Supabase bucket. No credentials are stored in this repository.
