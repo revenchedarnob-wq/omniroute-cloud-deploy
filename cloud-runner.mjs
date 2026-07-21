@@ -114,6 +114,7 @@ async function uploadBackup(reason) {
 }
 
 await restoreOrMigrate();
+await uploadBackup("initial");
 const child = spawn("node", ["/app/custom-server.js"], { cwd: "/app", env: process.env, stdio: "inherit" });
 const interval = setInterval(() => void uploadBackup("scheduled"), BACKUP_INTERVAL_MS);
 interval.unref();
