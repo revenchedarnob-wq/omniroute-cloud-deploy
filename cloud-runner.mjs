@@ -52,17 +52,18 @@ function decrypt(payload) {
   return Buffer.concat([decipher.update(payload.subarray(36)), decipher.final()]);
 }
 
-async function fetchObject(objectPath) {
+async function fetchObject(objectPath, { allowMissing = false } = {}) {
   const url = `${storageBase}/object/authenticated/${BUCKET}/${objectPath}`;
   const response = await fetch(url, { headers: { ...headers, "Cache-Control": "no-cache" } });
-  if (response.status === 404) return null;
+  // Supabase Storage can report a missing object as either 400 or 404.
+  if (allowMissing && (response.status === 400 || response.status === 404)) return null;
   if (!response.ok) throw new Error(`Backup restore failed with HTTP ${response.status}`);
   return decrypt(Buffer.from(await response.arrayBuffer()));
 }
 
 async function restoreOrMigrate() {
   await mkdir(DB_DIR, { recursive: true });
-  const current = await fetchObject(TARGET_OBJECT);
+  const current = await fetchObject(TARGET_OBJECT, { allowMissing: true });
   if (current) {
     const tempPath = `${DB_PATH}.restore-${Date.now()}`;
     await writeFile(tempPath, current, { mode: 0o600 });
