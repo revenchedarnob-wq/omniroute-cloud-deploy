@@ -365,6 +365,95 @@ function buildToolItem(record, status, complete) {
   };
 }
 
+function responseToolItem(toolCall, responsesToolState) {
+  const fn = toolCall?.function || {};
+  const wireName = fn.name || toolCall?.name || "_unknown";
+  const callId = toolCall?.id || fallbackToolCallId();
+  const identity = responsesToolState?.toolIdentities?.[wireName] || {
+    kind: RESPONSES_ITEM.FUNCTION_CALL,
+    name: wireName,
+    childType: "function",
+  };
+  const argumentsValue =
+    typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments || {});
+  const record = {
+    identity,
+    itemId: `${itemIdPrefix(identity)}_${callId}`,
+    callId,
+    arguments: argumentsValue,
+    customInput: parseCustomInput(argumentsValue),
+  };
+  return buildToolItem(record, "completed", true);
+}
+
+function responseUsage(usage) {
+  const inputTokens = usage?.prompt_tokens ?? usage?.input_tokens ?? 0;
+  const outputTokens = usage?.completion_tokens ?? usage?.output_tokens ?? 0;
+  const result = {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: usage?.total_tokens ?? inputTokens + outputTokens,
+  };
+  if (usage?.prompt_tokens_details || usage?.input_tokens_details) {
+    result.input_tokens_details = usage.prompt_tokens_details || usage.input_tokens_details;
+  }
+  if (usage?.completion_tokens_details || usage?.output_tokens_details) {
+    result.output_tokens_details = usage.completion_tokens_details || usage.output_tokens_details;
+  }
+  return result;
+}
+
+/**
+ * Convert one non-streaming Chat Completions response into Responses JSON.
+ * The request-scoped identity map restores native and namespaced tool types.
+ */
+export function openAICompletionToOpenAIResponsesResponse(responseBody, responsesToolState) {
+  const choice = responseBody?.choices?.[0];
+  if (!choice) return responseBody;
+
+  const message = choice.message || {};
+  const output = [];
+  const responseId = String(responseBody.id || `chatcmpl-${Date.now()}`);
+  const createdAt = responseBody.created || Math.floor(Date.now() / 1000);
+  const text = typeof message.content === "string" ? message.content : "";
+  const reasoning = message.reasoning_content || message.provider_specific_fields?.reasoning_content || "";
+
+  if (reasoning) {
+    output.push({
+      id: `rs_resp_${responseId}_${output.length}`,
+      type: RESPONSES_ITEM.REASONING,
+      summary: [{ type: RESPONSES_ITEM.SUMMARY_TEXT, text: reasoning }],
+    });
+  }
+  if (text) {
+    output.push({
+      id: `msg_resp_${responseId}_${output.length}`,
+      type: RESPONSES_ITEM.MESSAGE,
+      status: "completed",
+      role: ROLE.ASSISTANT,
+      content: [{
+        type: RESPONSES_ITEM.OUTPUT_TEXT,
+        annotations: [],
+        logprobs: [],
+        text,
+      }],
+    });
+  }
+  for (const toolCall of message.tool_calls || []) {
+    output.push(responseToolItem(toolCall, responsesToolState));
+  }
+
+  return {
+    id: responseId.startsWith("resp_") ? responseId : `resp_${responseId}`,
+    object: "response",
+    created_at: createdAt,
+    status: "completed",
+    model: responseBody.model || "unknown",
+    output,
+    usage: responseUsage(responseBody.usage),
+  };
+}
+
 function startToolCall(state, emit, record, allowFallback = false) {
   if (record.added || !record.callId || !record.name) return false;
   const identity = resolveToolIdentity(state, record.name, allowFallback);

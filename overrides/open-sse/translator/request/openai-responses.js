@@ -207,6 +207,55 @@ function stringifyChatArguments(value) {
   return JSON.stringify(value ?? {});
 }
 
+function messageText(item) {
+  if (typeof item?.content === "string") return item.content;
+  if (!Array.isArray(item?.content)) return "";
+  return item.content
+    .filter((part) => part?.type === RESPONSES_ITEM.INPUT_TEXT && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function shouldForceClientToolSearch(body, inputItems) {
+  if (body.tool_choice !== undefined && body.tool_choice !== "auto") return false;
+
+  const hasClientToolSearch = Array.isArray(body.tools) && body.tools.some(
+    (tool) =>
+      tool?.type === RESPONSES_ITEM.TOOL_SEARCH &&
+      tool.execution === "client"
+  );
+  if (!hasClientToolSearch) return false;
+
+  let newestUserIndex = -1;
+  for (let index = inputItems.length - 1; index >= 0; index--) {
+    const item = inputItems[index];
+    const type = item?.type || (item?.role ? RESPONSES_ITEM.MESSAGE : null);
+    if (type === RESPONSES_ITEM.MESSAGE && item.role === ROLE.USER) {
+      newestUserIndex = index;
+      break;
+    }
+  }
+  if (newestUserIndex < 0) return false;
+
+  // Codex serializes an explicitly selected deferred plugin as a plugin:// URI.
+  // A bare textual mention of tool_search is not structural discovery intent.
+  const newestUserText = messageText(inputItems[newestUserIndex]);
+  if (!/\bplugin:\/\/[a-z0-9][a-z0-9._-]*@[a-z0-9][a-z0-9._-]*\b/i.test(newestUserText)) {
+    return false;
+  }
+
+  // Any search lifecycle item after the newest user message means this request
+  // is a continuation (or malformed continuation), never a fresh discovery.
+  return !inputItems.slice(newestUserIndex + 1).some((item) => {
+    const type = item?.type;
+    return (
+      type === RESPONSES_ITEM.TOOL_SEARCH_CALL ||
+      type === RESPONSES_ITEM.TOOL_SEARCH_OUTPUT ||
+      type === RESPONSES_ITEM.ADDITIONAL_TOOLS
+    );
+  });
+}
+
 /**
  * Convert OpenAI Responses API request to OpenAI Chat Completions format
  */
@@ -415,6 +464,12 @@ export function openaiResponsesToOpenAIRequest(model, body, stream, credentials)
 
   if (toolBridge.tools.length > 0) result.tools = toolBridge.tools;
   else delete result.tools;
+  if (shouldForceClientToolSearch(body, inputItems)) {
+    result.tool_choice = {
+      type: OPENAI_BLOCK.FUNCTION,
+      function: { name: TOOL_SEARCH_WIRE_NAME },
+    };
+  }
   if (Object.keys(toolBridge.state.toolIdentities).length > 0) {
     result._responsesToolState = toolBridge.state;
   }
