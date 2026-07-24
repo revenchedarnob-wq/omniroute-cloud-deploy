@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # 9Router v0.5.40 (upstream source 79918c7830695bbca4a45c9fea4a42c3e9fd73d1)
-FROM decolua/9router@sha256:9c1f509f0045ee604657f96093a20154e811674f005b75bb37639a543cd5e10d AS builder
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS builder
 
 USER root
 WORKDIR /build
